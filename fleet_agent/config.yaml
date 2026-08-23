@@ -19,6 +19,10 @@ options:
   verify_tls: true
   zigbee2mqtt_url: ""
   esphome_url: ""
+  tunnel_url: "http://3c16f7ae-ha-fleet-tunnel:9090"
+  tunnel_control_key_id: "tunnel-001"
+  tunnel_control_secret: ""
+  maintenance_ttl_seconds: 3600
 schema:
   backend_url: url
   site_code: "match(^SITE-[0-9]{3}$)"
@@ -29,4 +33,8 @@ schema:
   verify_tls: bool
   zigbee2mqtt_url: "str?"
   esphome_url: "str?"
+  tunnel_url: url
+  tunnel_control_key_id: str
+  tunnel_control_secret: "password?"
+  maintenance_ttl_seconds: "int(300,86400)"
 
