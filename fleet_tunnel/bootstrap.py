@@ -8,6 +8,11 @@ from pathlib import Path
 
 
 SOCKET = "/var/run/tailscale/tailscaled.sock"
+AUTH_KEY_PATH = Path("/run/ha-fleet-tunnel/authkey")
+
+
+class TailscaleAuthenticationError(RuntimeError):
+    pass
 
 
 def required(options: dict, key: str) -> str:
@@ -38,6 +43,35 @@ def wait_for_socket(path: str, timeout: int = 15) -> None:
     raise RuntimeError("tailscaled did not create its local socket")
 
 
+def authenticate(environment: dict[str, str], auth_key_path: Path = AUTH_KEY_PATH) -> None:
+    auth_key = environment.pop("TAILSCALE_AUTH_KEY")
+    auth_key_path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    auth_key_path.parent.chmod(0o700)
+    descriptor = os.open(auth_key_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+            handle.write(auth_key)
+            handle.write("\n")
+        auth_key_path.chmod(0o600)
+        completed = subprocess.run(
+            [
+                "tailscale", "--socket", SOCKET, "up",
+                "--auth-key", f"file:{auth_key_path}",
+                "--hostname", environment["TAILSCALE_HOSTNAME"],
+                "--accept-dns=false",
+            ],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        if completed.returncode != 0:
+            raise TailscaleAuthenticationError(
+                "Tailscale authentication failed; verify auth_key in the App Configuration tab"
+            )
+    finally:
+        auth_key_path.unlink(missing_ok=True)
+
+
 def main(options_path: Path = Path("/data/options.json")) -> None:
     options = json.loads(options_path.read_text(encoding="utf-8"))
     try:
@@ -56,23 +90,16 @@ def main(options_path: Path = Path("/data/options.json")) -> None:
     )
     try:
         wait_for_socket(SOCKET)
-        subprocess.run(
-            [
-                "tailscale", "--socket", SOCKET, "up",
-                "--auth-key", environment["TAILSCALE_AUTH_KEY"],
-                "--hostname", environment["TAILSCALE_HOSTNAME"],
-                "--accept-dns=false",
-            ],
-            check=True,
-            stdout=sys.stdout,
-            stderr=sys.stderr,
-        )
+        try:
+            authenticate(environment)
+        except TailscaleAuthenticationError as exc:
+            print(f"HA Fleet Tunnel cannot authenticate: {exc}.", flush=True)
+            raise SystemExit(78) from None
         relay = subprocess.Popen(
             ["socat", "TCP-LISTEN:8123,bind=127.0.0.1,fork,reuseaddr", "TCP:homeassistant:8123"],
             stdout=sys.stdout,
             stderr=sys.stderr,
         )
-        environment.pop("TAILSCALE_AUTH_KEY", None)
         os.environ.update(environment)
         os.execv(sys.executable, [sys.executable, "-m", "app.main"])
     finally:
@@ -81,4 +108,3 @@ def main(options_path: Path = Path("/data/options.json")) -> None:
 
 if __name__ == "__main__":
     main()
-
