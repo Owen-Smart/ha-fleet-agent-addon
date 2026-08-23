@@ -4,22 +4,22 @@ This app sends outbound health reports from Home Assistant OS to the central HA 
 
 ## Configuration
 
-- `evaluation_mode`: Enabled by default. The app verifies local Home Assistant health and stays running without sending data to a backend.
-- `backend_url`: Public or LAN URL of the central backend, including `https://` and any nonstandard port. Required when evaluation mode is disabled.
+- `backend_url`: Public or LAN URL of the central backend, including `https://` and any nonstandard port.
 - `site_code`, `device_uid`, `agent_key_id`: Identity provisioned by the backend.
-- `agent_secret`: Unique site secret. It must match the backend's stored credential and is required when evaluation mode is disabled.
+- `agent_secret`: Unique site secret. It must match the backend's stored credential.
 - `heartbeat_seconds`: Reporting interval; 60 seconds is recommended.
 - `verify_tls`: Keep enabled. Disable only for an isolated evaluation LAN using a plain HTTP backend.
 - `zigbee2mqtt_url`, `esphome_url`: Optional health URLs reachable from this app.
 
 The app uses Home Assistant's internal Supervisor proxy and runtime `SUPERVISOR_TOKEN`; no HA long-lived access token is required.
 
-Leave `evaluation_mode` enabled until the central Fleet backend and a unique site credential have been provisioned. Evaluation mode performs no outbound backend requests and writes a structured local health event to the app log every reporting interval.
+The app intentionally refuses to start when `agent_secret` is empty. Its log will direct the operator to the Configuration tab instead of emitting a Python traceback or running without authentication.
+
+The default boot mode is manual. Configure the backend and site credential first, start the app, verify a successful registration, and only then enable **Start on boot**. This prevents an unconfigured installation from entering a Supervisor watchdog restart loop.
 
 ## Example for an isolated LAN test
 
 ```yaml
-evaluation_mode: false
 backend_url: http://192.168.1.50:8080
 site_code: SITE-001
 device_uid: device-001
