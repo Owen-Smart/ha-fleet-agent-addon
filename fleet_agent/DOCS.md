@@ -10,6 +10,9 @@ This app sends outbound health reports from Home Assistant OS to the central HA 
 - `heartbeat_seconds`: Reporting interval; 60 seconds is recommended.
 - `verify_tls`: Keep enabled. Disable only for an isolated evaluation LAN using a plain HTTP backend.
 - `zigbee2mqtt_url`, `esphome_url`: Optional health URLs reachable from this app.
+- `tunnel_url`: Fleet Tunnel 的 HA App 內部 URL；預設為本 Repository 的 Tunnel hostname。
+- `tunnel_control_key_id`, `tunnel_control_secret`: Agent 呼叫 Tunnel API 的獨立 HMAC 憑證。
+- `maintenance_ttl_seconds`: 遠端維修自動關閉秒數。Agent 將 lease 寫入 `/data`，Manager 中斷時仍會依期限關閉。
 
 The app uses Home Assistant's internal Supervisor proxy and runtime `SUPERVISOR_TOKEN`; no HA long-lived access token is required.
 
