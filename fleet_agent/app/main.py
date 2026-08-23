@@ -94,11 +94,20 @@ def read_lease_expiry() -> datetime | None:
         return None
 
 
-async def enforce_lease(client: httpx.AsyncClient) -> None:
+async def enforce_lease(client: httpx.AsyncClient) -> bool:
     expiry = read_lease_expiry()
-    if expiry and datetime.now(timezone.utc) >= expiry:
+    if not expiry or datetime.now(timezone.utc) < expiry:
+        return True
+    try:
         await tunnel_call(client, "POST", "/disable")
-        clear_lease()
+    except (httpx.HTTPError, RuntimeError, ValueError) as exc:
+        print(
+            f"maintenance lease expired but Fleet Tunnel is unavailable; disable will be retried: {exc}",
+            flush=True,
+        )
+        return False
+    clear_lease()
+    return True
 
 
 async def tunnel_snapshot(client: httpx.AsyncClient) -> dict[str, str]:
@@ -202,4 +211,3 @@ async def run():
 
 if __name__ == "__main__":
     asyncio.run(run())
-
