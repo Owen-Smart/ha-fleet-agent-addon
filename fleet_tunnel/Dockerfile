@@ -2,7 +2,7 @@ FROM tailscale/tailscale:stable AS tailscale
 
 FROM python:3.12-alpine
 
-ARG BUILD_VERSION=0.1.0
+ARG BUILD_VERSION=0.1.1
 ARG BUILD_ARCH
 
 LABEL \
@@ -19,4 +19,3 @@ COPY app ./app
 COPY bootstrap.py ./bootstrap.py
 
 CMD ["python", "/app/bootstrap.py"]
-
