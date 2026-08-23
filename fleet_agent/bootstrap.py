@@ -33,7 +33,7 @@ def build_environment(options: dict, environ: dict[str, str]) -> dict[str, str]:
         "DEVICE_UID": required(options, "device_uid"),
         "AGENT_KEY_ID": required(options, "agent_key_id"),
         "AGENT_SECRET": agent_secret,
-        "AGENT_VERSION": "0.1.4-ha-addon",
+        "AGENT_VERSION": "0.1.5-ha-addon",
         "HEARTBEAT_SECONDS": str(options.get("heartbeat_seconds", 60)),
         "VERIFY_TLS": "true" if verify_tls else "false",
         "HA_URL": "http://supervisor/core",
@@ -67,4 +67,3 @@ def main(options_path: Path = Path("/data/options.json")) -> None:
 
 if __name__ == "__main__":
     main()
-
