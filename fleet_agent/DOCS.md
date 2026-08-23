@@ -15,6 +15,8 @@ The app uses Home Assistant's internal Supervisor proxy and runtime `SUPERVISOR_
 
 The app intentionally refuses to start when `agent_secret` is empty. Its log will direct the operator to the Configuration tab instead of emitting a Python traceback or running without authentication.
 
+The secret is not transmitted in an HTTP header. Each request is signed with HMAC-SHA256 over the method, path, timestamp, nonce, and request-body hash. The Manager rejects stale timestamps and reused nonces. This protects the evaluation API against credential disclosure and simple replay attacks, but HTTPS or a private Tailscale path is still required outside an isolated LAN.
+
 The default boot mode is manual. Configure the backend and site credential first, start the app, verify a successful registration, and only then enable **Start on boot**. This prevents an unconfigured installation from entering a Supervisor watchdog restart loop.
 
 ## Example for an isolated LAN test
@@ -36,3 +38,4 @@ Use HTTPS with certificate verification for any routed, shared, or Internet-acce
 ## Metrics limitation
 
 The current CPU, RAM, and disk readings describe the app container's available runtime view. They are adequate for connectivity demonstration but are not yet authoritative Home Assistant host metrics. A commercial build should obtain host data through approved Supervisor information endpoints and define exactly what each metric represents.
+
