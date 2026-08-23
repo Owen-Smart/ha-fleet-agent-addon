@@ -3,6 +3,7 @@ import hmac
 import json
 import os
 import re
+import secrets
 import threading
 from datetime import datetime, timedelta, timezone
 from http import HTTPStatus
@@ -36,6 +37,7 @@ class ManagerState:
         self._site_code_by_key = {site["agent_key_id"]: site["site_code"] for site in sites}
         self._latest: dict[str, dict[str, Any]] = {}
         self._seen_nonces: dict[tuple[str, str], datetime] = {}
+        self._commands: dict[str, dict[str, Any]] = {}
 
     def authenticate_request(
         self,
@@ -91,12 +93,49 @@ class ManagerState:
         snapshot["received_at"] = (received_at or utc_now()).isoformat()
         with self._lock:
             self._latest[identity["site_code"]] = snapshot
+            command_result = payload.get("command_result")
+            pending = self._commands.get(identity["site_code"])
+            if isinstance(command_result, dict) and pending and command_result.get("id") == pending.get("id"):
+                if not command_result.get("success"):
+                    snapshot["tunnel_status"] = "ERROR"
+                self._commands.pop(identity["site_code"], None)
+
+    def queue_command(self, site_code: str, action: str, ttl_seconds: int = 3600) -> dict[str, Any]:
+        if site_code not in self._sites_by_code:
+            raise KeyError("Unknown SITE")
+        if action not in {"enable", "disable"}:
+            raise ValueError("Action must be enable or disable")
+        ttl = max(300, min(int(ttl_seconds), 86400))
+        command = {
+            "id": secrets.token_urlsafe(18),
+            "action": action,
+            "ttl_seconds": ttl,
+            "expires_at": (utc_now() + timedelta(seconds=120)).isoformat(),
+        }
+        with self._lock:
+            self._commands[site_code] = command
+        return dict(command)
+
+    def pending_command(self, site_code: str) -> dict[str, Any] | None:
+        with self._lock:
+            command = self._commands.get(site_code)
+            if not command:
+                return None
+            if datetime.fromisoformat(command["expires_at"]) <= utc_now():
+                self._commands.pop(site_code, None)
+                return None
+            return dict(command)
 
     def sites(self, now: datetime | None = None) -> list[dict[str, Any]]:
         current = now or utc_now()
         result = []
         with self._lock:
             latest = {key: dict(value) for key, value in self._latest.items()}
+            self._commands = {
+                key: value for key, value in self._commands.items()
+                if datetime.fromisoformat(value["expires_at"]) > current
+            }
+            commands = {key: dict(value) for key, value in self._commands.items()}
         for site_code in sorted(self._sites_by_code):
             config = self._sites_by_code[site_code]
             snapshot = latest.get(site_code)
@@ -104,20 +143,28 @@ class ManagerState:
             if snapshot:
                 received_at = datetime.fromisoformat(snapshot["received_at"])
                 online = (current - received_at).total_seconds() <= self.offline_seconds
+            command = commands.get(site_code)
+            tunnel_status = (
+                "OPENING" if command and command["action"] == "enable"
+                else "CLOSING" if command
+                else snapshot.get("tunnel_status", "not_configured") if snapshot
+                else "not_configured"
+            )
             result.append(
                 {
                     "site_code": site_code,
                     "site_name": config["site_name"],
                     "device_uid": config["device_uid"],
                     "status": "online" if online else "offline",
-                    "remote_url": config.get("remote_url", ""),
+                    "remote_url": snapshot.get("remote_url", config.get("remote_url", "")) if snapshot else config.get("remote_url", ""),
                     "last_seen": snapshot.get("received_at") if snapshot else None,
                     "ha_version": snapshot.get("ha_version") if snapshot else None,
                     "agent_version": snapshot.get("agent_version") if snapshot else None,
                     "cpu_percent": snapshot.get("cpu_percent") if snapshot else None,
                     "ram_percent": snapshot.get("ram_percent") if snapshot else None,
                     "disk_percent": snapshot.get("disk_percent") if snapshot else None,
-                    "tunnel_status": snapshot.get("tunnel_status") if snapshot else "not_configured",
+                    "tunnel_status": tunnel_status,
+                    "tunnel_error": snapshot.get("command_result", {}).get("error") if snapshot and isinstance(snapshot.get("command_result"), dict) else None,
                 }
             )
         return result
@@ -209,7 +256,7 @@ def agent_handler_factory(state: ManagerState):
                 except ValueError as exc:
                     send_json(self, HTTPStatus.BAD_REQUEST, {"detail": str(exc)})
                     return
-                send_json(self, HTTPStatus.OK, {"accepted": True, "received_at": utc_now().isoformat()})
+                send_json(self, HTTPStatus.OK, {"accepted": True, "received_at": utc_now().isoformat(), "command": state.pending_command(identity["site_code"])})
                 return
         def log_message(self, format_string: str, *args: object) -> None:
             print(f"agent-api {self.client_address[0]} {format_string % args}", flush=True)
@@ -229,7 +276,7 @@ def portal_html() -> bytes:
     *{box-sizing:border-box}body{margin:0}main{max-width:1100px;margin:auto;padding:24px}
     header{display:flex;justify-content:space-between;align-items:center;margin-bottom:20px}h1{font-size:26px;margin:0}button,a.action{border:0;border-radius:8px;padding:10px 14px;background:#03a9d9;color:#00151d;font-weight:700;text-decoration:none;cursor:pointer}
     .summary{display:flex;gap:12px;margin-bottom:16px}.summary div,.site{background:#1b2228;border:1px solid #33404a;border-radius:12px;padding:16px}.summary strong{font-size:24px;display:block}.summary span,.muted{color:#9fb0bb}
-    #sites{display:grid;gap:12px}.site{display:grid;grid-template-columns:minmax(160px,1fr) 2fr auto;gap:16px;align-items:center}.site h2{margin:0 0 5px;font-size:19px}.metrics{display:flex;gap:18px;flex-wrap:wrap}.status{display:inline-flex;align-items:center;gap:7px}.dot{width:10px;height:10px;border-radius:50%;background:#65747d}.online .dot{background:#28c76f}.offline .dot{background:#f05b61}.disabled{pointer-events:none;opacity:.45}
+    #sites{display:grid;gap:12px}.site{display:grid;grid-template-columns:minmax(160px,1fr) 2fr auto;gap:16px;align-items:center}.site h2{margin:0 0 5px;font-size:19px}.metrics{display:flex;gap:18px;flex-wrap:wrap}.status{display:inline-flex;align-items:center;gap:7px}.dot{width:10px;height:10px;border-radius:50%;background:#65747d}.online .dot{background:#28c76f}.offline .dot{background:#f05b61}.disabled{pointer-events:none;opacity:.45}.actions{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.danger{background:#f05b61;color:#fff}.tunnel{margin-top:6px;font-weight:600}
     @media(max-width:700px){.site{grid-template-columns:1fr}.metrics{gap:10px}.site .action{justify-self:start}}
   </style>
 </head>
@@ -248,11 +295,22 @@ async function load(){
   document.getElementById('online').textContent=sites.filter(site=>site.status==='online').length;
   document.getElementById('offline').textContent=sites.filter(site=>site.status!=='online').length;
   document.getElementById('sites').innerHTML=sites.map(site=>{
-    const enabled=site.status==='online'&&site.remote_url;
-    const action=site.remote_url?`<a class="action ${enabled?'':'disabled'}" href="${esc(site.remote_url)}" target="_blank" rel="noopener noreferrer">開啟 HA</a>`:'<span class="muted">尚未設定遠端網址</span>';
-    return `<article class="site"><div><h2>${esc(site.site_name)}</h2><div class="status ${esc(site.status)}"><span class="dot"></span>${site.status==='online'?'在線':'離線'}</div></div><div><div class="metrics"><span>HA ${esc(site.ha_version||'—')}</span><span>Agent ${esc(site.agent_version||'—')}</span><span>CPU ${pct(site.cpu_percent)}</span><span>RAM ${pct(site.ram_percent)}</span><span>磁碟 ${pct(site.disk_percent)}</span></div><div class="muted">最後更新：${esc(time(site.last_seen))}</div></div>${action}</article>`;
+    const state=String(site.tunnel_status||'not_configured');
+    const busy=state==='OPENING'||state==='CLOSING';
+    const online=site.status==='online';
+    let actions='';
+    if(state==='ON'&&site.remote_url){actions=`<a class="action" href="${esc(site.remote_url)}" target="_blank" rel="noopener noreferrer">進入 HA</a><button class="danger" onclick="tunnelCommand('${esc(site.site_code)}','disable')">撤銷／關閉維修</button>`}
+    else if(state==='not_configured'){actions='<span class="muted">SITE 尚未設定 Fleet Tunnel</span>'}
+    else{actions=`<button class="${online&&!busy?'':'disabled'}" onclick="tunnelCommand('${esc(site.site_code)}','enable')">${busy?'處理中…':'開啟遠端維修'}</button>`}
+    return `<article class="site"><div><h2>${esc(site.site_name)}</h2><div class="status ${esc(site.status)}"><span class="dot"></span>${site.status==='online'?'在線':'離線'}</div><div class="tunnel">Tunnel：${esc(state)}</div></div><div><div class="metrics"><span>HA ${esc(site.ha_version||'—')}</span><span>Agent ${esc(site.agent_version||'—')}</span><span>CPU ${pct(site.cpu_percent)}</span><span>RAM ${pct(site.ram_percent)}</span><span>磁碟 ${pct(site.disk_percent)}</span></div><div class="muted">最後更新：${esc(time(site.last_seen))}</div>${site.tunnel_error?`<div class="muted">錯誤：${esc(site.tunnel_error)}</div>`:''}</div><div class="actions">${actions}</div></article>`;
   }).join('')||'<div class="site">尚未設定 SITE</div>';
 }
+async function tunnelCommand(siteCode,action){
+  const response=await fetch(`api/sites/${encodeURIComponent(siteCode)}/tunnel`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action,ttl_seconds:3600})});
+  if(!response.ok){const detail=await response.json().catch(()=>({detail:`API ${response.status}`}));throw new Error(detail.detail||`API ${response.status}`)}
+  await load();
+}
+window.tunnelCommand=(siteCode,action)=>tunnelCommand(siteCode,action).catch(showError);
 document.getElementById('refresh').onclick=()=>load().catch(showError);
 function showError(error){document.getElementById('sites').innerHTML=`<div class="site">無法取得狀態：${esc(error.message)}</div>`}
 load().catch(showError);setInterval(()=>load().catch(showError),30000);
@@ -281,6 +339,23 @@ def ui_handler_factory(state: ManagerState):
             self.send_header("X-Frame-Options", "SAMEORIGIN")
             self.end_headers()
             self.wfile.write(html)
+
+        def do_POST(self) -> None:
+            path = urlparse(self.path).path
+            match = re.search(r"/api/sites/([^/]+)/tunnel$", path)
+            if not match:
+                send_json(self, HTTPStatus.NOT_FOUND, {"detail": "Not found"})
+                return
+            try:
+                payload = parse_json(read_body(self))
+                command = state.queue_command(match.group(1), str(payload.get("action", "")), int(payload.get("ttl_seconds", 3600)))
+            except KeyError as exc:
+                send_json(self, HTTPStatus.NOT_FOUND, {"detail": str(exc)})
+                return
+            except (TypeError, ValueError) as exc:
+                send_json(self, HTTPStatus.BAD_REQUEST, {"detail": str(exc)})
+                return
+            send_json(self, HTTPStatus.ACCEPTED, {"accepted": True, "command": command})
 
         def log_message(self, format_string: str, *args: object) -> None:
             print(f"manager-ui {self.client_address[0]} {format_string % args}", flush=True)
