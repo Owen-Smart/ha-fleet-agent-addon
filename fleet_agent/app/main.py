@@ -1,6 +1,11 @@
 import asyncio
+import hashlib
+import hmac
+import json
 import os
 import random
+import secrets
+import time
 from datetime import datetime, timezone
 
 import httpx
@@ -19,6 +24,21 @@ VERIFY_TLS = os.getenv("VERIFY_TLS", "true").lower() not in {"0", "false", "no"}
 HA = HomeAssistantAdapter(os.getenv("HA_URL", "http://homeassistant:8123"), os.getenv("HA_TOKEN"), VERIFY_TLS)
 
 
+def signed_headers(method: str, path: str, body: bytes = b"", timestamp: int | None = None, nonce: str | None = None) -> dict[str, str]:
+    request_timestamp = str(timestamp if timestamp is not None else int(time.time()))
+    request_nonce = nonce or secrets.token_urlsafe(24)
+    body_sha256 = hashlib.sha256(body).hexdigest()
+    canonical = "\n".join((method.upper(), path, request_timestamp, request_nonce, body_sha256)).encode("utf-8")
+    signing_key = hashlib.sha256(SECRET.encode("utf-8")).digest()
+    signature = hmac.new(signing_key, canonical, hashlib.sha256).hexdigest()
+    return {
+        "X-Agent-Key-Id": KEY_ID,
+        "X-Agent-Timestamp": request_timestamp,
+        "X-Agent-Nonce": request_nonce,
+        "X-Agent-Signature": signature,
+    }
+
+
 async def service_status(client: httpx.AsyncClient, url: str | None) -> str:
     if not url:
         return "not_configured"
@@ -31,7 +51,6 @@ async def service_status(client: httpx.AsyncClient, url: str | None) -> str:
 
 async def report(client: httpx.AsyncClient):
     ha_status, version = await HA.health_and_version()
-    headers = {"X-Agent-Key-Id": KEY_ID, "X-Agent-Secret": SECRET}
     payload = {
         "site_code": SITE_CODE,
         "device_uid": DEVICE_UID,
@@ -45,7 +64,10 @@ async def report(client: httpx.AsyncClient):
         "zigbee2mqtt_status": await service_status(client, os.getenv("ZIGBEE2MQTT_URL")),
         "esphome_status": await service_status(client, os.getenv("ESPHOME_URL")),
     }
-    response = await client.post(f"{BACKEND_URL}/api/agent/heartbeat", headers=headers, json=payload)
+    path = "/api/agent/heartbeat"
+    body = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+    headers = {**signed_headers("POST", path, body), "Content-Type": "application/json"}
+    response = await client.post(f"{BACKEND_URL}{path}", headers=headers, content=body)
     response.raise_for_status()
 
 
@@ -54,8 +76,8 @@ async def run():
     async with httpx.AsyncClient(timeout=10, verify=VERIFY_TLS) as client:
         while True:
             try:
-                headers = {"X-Agent-Key-Id": KEY_ID, "X-Agent-Secret": SECRET}
-                response = await client.post(f"{BACKEND_URL}/api/agent/register", headers=headers)
+                path = "/api/agent/register"
+                response = await client.post(f"{BACKEND_URL}{path}", headers=signed_headers("POST", path))
                 response.raise_for_status()
                 await report(client)
                 backoff = 2
@@ -68,3 +90,4 @@ async def run():
 
 if __name__ == "__main__":
     asyncio.run(run())
+
