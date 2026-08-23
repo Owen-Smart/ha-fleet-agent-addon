@@ -1,8 +1,13 @@
 # HA Fleet Agent for Home Assistant
 
-這是一個獨立的 Home Assistant App／Add-on Repository，提供 HA Fleet Agent。
+這是一個獨立的 Home Assistant App／Add-on Repository，提供：
+
+- **HA Fleet Agent**：安裝於受管理 SITE，主動回報目前狀態。
+- **HA Fleet Manager**：安裝於 Owen HA，提供輕量的遠端使用與維修入口。
 
 Fleet Agent 會從 Home Assistant 主動向中央 Fleet 平台回報健康狀態，不會開放 HA 8123，也不需要手動建立 Home Assistant Long-Lived Access Token。
+
+Fleet Manager 第一版不保存歷史資料，也不使用 PostgreSQL 或 SQLite。Manager UI 僅透過 Home Assistant Ingress 開啟；Agent API 使用獨立 Port。
 
 ## 安裝
 
@@ -16,7 +21,7 @@ Fleet Agent 會從 Home Assistant 主動向中央 Fleet 平台回報健康狀態
 https://github.com/Owen-Smart/ha-fleet-agent-addon
 ```
 
-完成後即可在應用程式商店安裝 **HA Fleet Agent**。
+完成後即可在應用程式商店安裝 **HA Fleet Agent** 或 **HA Fleet Manager**。
 
 ## 注意
 
@@ -25,3 +30,4 @@ https://github.com/Owen-Smart/ha-fleet-agent-addon
 - 預設採手動啟動；完成後端與站點憑證設定、確認成功註冊後，再開啟「開機時啟動」，避免未設定完成時反覆重啟。
 - HTTP 僅適合隔離的測試 LAN；正式環境必須使用 HTTPS。
 - 完整的 Headscale 自動註冊與正式憑證輪替仍屬後續商業化工作。
+
