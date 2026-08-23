@@ -2,8 +2,9 @@ import hashlib
 import hmac
 import json
 import os
+import re
 import threading
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
@@ -11,6 +12,16 @@ from urllib.parse import urlparse
 
 
 MAX_BODY_BYTES = 64 * 1024
+MAX_CLOCK_SKEW_SECONDS = 120
+NONCE_TTL_SECONDS = 300
+
+
+class AuthenticationError(Exception):
+    pass
+
+
+class ReplayError(AuthenticationError):
+    pass
 
 
 def utc_now() -> datetime:
@@ -24,15 +35,47 @@ class ManagerState:
         self._sites_by_code = {site["site_code"]: dict(site) for site in sites}
         self._site_code_by_key = {site["agent_key_id"]: site["site_code"] for site in sites}
         self._latest: dict[str, dict[str, Any]] = {}
+        self._seen_nonces: dict[tuple[str, str], datetime] = {}
 
-    def authenticate(self, key_id: str, secret: str) -> dict[str, str] | None:
+    def authenticate_request(
+        self,
+        key_id: str,
+        timestamp: str,
+        nonce: str,
+        signature: str,
+        method: str,
+        path: str,
+        body: bytes,
+        now: datetime | None = None,
+    ) -> dict[str, str]:
         site_code = self._site_code_by_key.get(key_id)
-        if not site_code or not secret:
-            return None
+        if not site_code or not timestamp or not nonce or not signature:
+            raise AuthenticationError("Invalid agent authentication")
+        if not re.fullmatch(r"[A-Za-z0-9_-]{16,128}", nonce):
+            raise AuthenticationError("Invalid agent authentication")
+        if not re.fullmatch(r"[0-9a-f]{64}", signature):
+            raise AuthenticationError("Invalid agent authentication")
+        try:
+            request_time = datetime.fromtimestamp(int(timestamp), timezone.utc)
+        except (ValueError, OverflowError):
+            raise AuthenticationError("Invalid agent authentication") from None
+        current = now or utc_now()
+        if abs((current - request_time).total_seconds()) > MAX_CLOCK_SKEW_SECONDS:
+            raise AuthenticationError("Agent request timestamp is outside the allowed window")
+
         site = self._sites_by_code[site_code]
-        supplied = hashlib.sha256(secret.encode("utf-8")).hexdigest()
-        if not hmac.compare_digest(site["secret_sha256"], supplied):
-            return None
+        body_sha256 = hashlib.sha256(body).hexdigest()
+        canonical = "\n".join((method.upper(), path, timestamp, nonce, body_sha256)).encode("utf-8")
+        expected = hmac.new(bytes.fromhex(site["secret_sha256"]), canonical, hashlib.sha256).hexdigest()
+        if not hmac.compare_digest(expected, signature):
+            raise AuthenticationError("Invalid agent authentication")
+
+        nonce_key = (key_id, nonce)
+        with self._lock:
+            self._seen_nonces = {key: expires for key, expires in self._seen_nonces.items() if expires > current}
+            if nonce_key in self._seen_nonces:
+                raise ReplayError("Agent request nonce has already been used")
+            self._seen_nonces[nonce_key] = current.replace(microsecond=0) + timedelta(seconds=NONCE_TTL_SECONDS)
         return site
 
     def update(self, identity: dict[str, str], payload: dict[str, Any], received_at: datetime | None = None) -> None:
@@ -91,15 +134,19 @@ def send_json(handler: BaseHTTPRequestHandler, status: int, payload: object) -> 
     handler.wfile.write(body)
 
 
-def read_json(handler: BaseHTTPRequestHandler) -> dict[str, Any]:
+def read_body(handler: BaseHTTPRequestHandler, allow_empty: bool = False) -> bytes:
     try:
         length = int(handler.headers.get("Content-Length", "0"))
     except ValueError as exc:
         raise ValueError("Invalid Content-Length") from exc
-    if length <= 0 or length > MAX_BODY_BYTES:
+    if length < 0 or length > MAX_BODY_BYTES or (length == 0 and not allow_empty):
         raise ValueError("Request body size is invalid")
+    return handler.rfile.read(length) if length else b""
+
+
+def parse_json(body: bytes) -> dict[str, Any]:
     try:
-        payload = json.loads(handler.rfile.read(length))
+        payload = json.loads(body)
     except json.JSONDecodeError as exc:
         raise ValueError("Request body must be valid JSON") from exc
     if not isinstance(payload, dict):
@@ -111,12 +158,6 @@ def agent_handler_factory(state: ManagerState):
     class AgentHandler(BaseHTTPRequestHandler):
         server_version = "HAFleetAgentAPI/0.1"
 
-        def _identity(self) -> dict[str, str] | None:
-            return state.authenticate(
-                self.headers.get("X-Agent-Key-Id", ""),
-                self.headers.get("X-Agent-Secret", ""),
-            )
-
         def do_GET(self) -> None:
             if urlparse(self.path).path == "/healthz":
                 send_json(self, HTTPStatus.OK, {"status": "ok"})
@@ -124,11 +165,30 @@ def agent_handler_factory(state: ManagerState):
             send_json(self, HTTPStatus.NOT_FOUND, {"detail": "Not found"})
 
         def do_POST(self) -> None:
-            identity = self._identity()
-            if not identity:
-                send_json(self, HTTPStatus.UNAUTHORIZED, {"detail": "Invalid agent credentials"})
-                return
             path = urlparse(self.path).path
+            if path not in {"/api/agent/register", "/api/agent/heartbeat"}:
+                send_json(self, HTTPStatus.NOT_FOUND, {"detail": "Not found"})
+                return
+            try:
+                body = read_body(self, allow_empty=path == "/api/agent/register")
+                identity = state.authenticate_request(
+                    self.headers.get("X-Agent-Key-Id", ""),
+                    self.headers.get("X-Agent-Timestamp", ""),
+                    self.headers.get("X-Agent-Nonce", ""),
+                    self.headers.get("X-Agent-Signature", ""),
+                    "POST",
+                    path,
+                    body,
+                )
+            except ReplayError as exc:
+                send_json(self, HTTPStatus.CONFLICT, {"detail": str(exc)})
+                return
+            except AuthenticationError as exc:
+                send_json(self, HTTPStatus.UNAUTHORIZED, {"detail": str(exc)})
+                return
+            except ValueError as exc:
+                send_json(self, HTTPStatus.BAD_REQUEST, {"detail": str(exc)})
+                return
             if path == "/api/agent/register":
                 send_json(
                     self,
@@ -142,7 +202,7 @@ def agent_handler_factory(state: ManagerState):
                 return
             if path == "/api/agent/heartbeat":
                 try:
-                    state.update(identity, read_json(self))
+                    state.update(identity, parse_json(body))
                 except PermissionError as exc:
                     send_json(self, HTTPStatus.FORBIDDEN, {"detail": str(exc)})
                     return
@@ -151,8 +211,6 @@ def agent_handler_factory(state: ManagerState):
                     return
                 send_json(self, HTTPStatus.OK, {"accepted": True, "received_at": utc_now().isoformat()})
                 return
-            send_json(self, HTTPStatus.NOT_FOUND, {"detail": "Not found"})
-
         def log_message(self, format_string: str, *args: object) -> None:
             print(f"agent-api {self.client_address[0]} {format_string % args}", flush=True)
 
@@ -252,5 +310,4 @@ def run() -> None:
 
 if __name__ == "__main__":
     run()
-
 
