@@ -15,6 +15,7 @@ HA Fleet Manager 是第一版的輕量遠端使用與維修入口，安裝於 Ow
 - Manager UI 僅透過 Home Assistant Ingress 提供。
 - Port `8099` 只提供 Agent 註冊與狀態回報 API，不提供 Manager UI。
 - 每個 SITE 必須使用不同的 `agent_key_id` 與高強度 `agent_secret`。
+- Agent 不會直接傳送 `agent_secret`；每個 request 使用 HMAC-SHA256、Timestamp 與一次性 Nonce 驗證。Manager 只在記憶體保存近期 Nonce，拒絕逾時與重送 request。
 - 第一版的 Agent API 僅適合隔離的測試區網。跨網路使用前必須透過加密 Tunnel 或 HTTPS。
 - 不得將 Home Assistant `8123`、MCP、Supervisor 或 Port `8099`直接公開至 Internet。
 
@@ -28,5 +29,4 @@ HA Fleet Manager 是第一版的輕量遠端使用與維修入口，安裝於 Ow
 - `agent_secret`
 
 `remote_url` 可以先留空；完成 Tunnel Client 後再填入該 SITE 的私人 HTTPS URL。
-
 
