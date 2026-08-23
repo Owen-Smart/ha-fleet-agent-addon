@@ -1,0 +1,23 @@
+name: "HA Fleet Tunnel"
+description: "Private on-demand Tailscale Serve tunnel for HA Fleet"
+version: "0.1.0"
+slug: "ha_fleet_tunnel"
+init: false
+startup: application
+boot: manual
+arch:
+  - amd64
+  - aarch64
+options:
+  hostname: "site-001-ha"
+  auth_key: ""
+  control_key_id: "tunnel-001"
+  control_secret: ""
+  serve_port: 443
+schema:
+  hostname: str
+  auth_key: password
+  control_key_id: str
+  control_secret: password
+  serve_port: "int(443,443)"
+
