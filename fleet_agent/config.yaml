@@ -35,6 +35,6 @@ schema:
   esphome_url: "str?"
   tunnel_url: url
   tunnel_control_key_id: str
-  tunnel_control_secret: "password?"
+  tunnel_control_secret: password
   maintenance_ttl_seconds: "int(300,86400)"
 
