@@ -12,8 +12,7 @@ HA Fleet Tunnel 是 SITE 端的私人 Tailscale Serve 控制元件。它使用 u
 ## 初次設定
 
 - `hostname`：顯示在 Tailscale Admin Console 的 SITE 節點名稱。
-- `auth_key`：Tailscale one-off auth key。完成首次加入後仍保存在 HA App 設定；PoC 完成後應改用更完整的金鑰生命週期。
+- `auth_key`：Tailscale one-off auth key。啟動時會寫入僅執行帳號可讀的暫存檔，並以 `--auth-key=file:...` 交給 Tailscale；驗證完成後立即刪除暫存檔，避免 auth key 出現在 process arguments 與錯誤日誌。完成首次加入後，原值仍保存在 HA App 設定；PoC 完成後應改用 OAuth 自動簽發與更完整的金鑰生命週期。
 - `control_key_id`、`control_secret`：只提供給同 SITE 的 Fleet Agent。
 
 完成設定後啟動 App，先在 Tailscale Admin Console 確認節點，再由 Fleet Agent 呼叫 `/status`、`/enable` 與 `/disable`。
-
