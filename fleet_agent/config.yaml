@@ -10,8 +10,7 @@ arch:
   - amd64
   - aarch64
 options:
-  evaluation_mode: true
-  backend_url: ""
+  backend_url: "https://fleet.example.com"
   site_code: "SITE-001"
   device_uid: "device-001"
   agent_key_id: "agent-001"
@@ -21,8 +20,7 @@ options:
   zigbee2mqtt_url: ""
   esphome_url: ""
 schema:
-  evaluation_mode: bool
-  backend_url: "str?"
+  backend_url: url
   site_code: "match(^SITE-[0-9]{3}$)"
   device_uid: str
   agent_key_id: str
