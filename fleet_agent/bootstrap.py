@@ -13,28 +13,21 @@ def required(options: dict, key: str) -> str:
 
 
 def build_environment(options: dict, environ: dict[str, str]) -> dict[str, str]:
-    evaluation_mode = bool(options.get("evaluation_mode", True))
-    backend_url = str(options.get("backend_url", "")).strip().rstrip("/")
-    agent_secret = str(options.get("agent_secret", "")).strip()
+    backend_url = required(options, "backend_url").rstrip("/")
+    agent_secret = required(options, "agent_secret")
     verify_tls = bool(options.get("verify_tls", True))
 
-    if not evaluation_mode:
-        if not backend_url:
-            raise ValueError("backend_url is required when evaluation_mode is disabled")
-        parsed = urlparse(backend_url)
-        if parsed.scheme not in {"http", "https"} or not parsed.hostname:
-            raise ValueError("backend_url must be a valid HTTP(S) URL")
-        if parsed.scheme != "https" and verify_tls:
-            raise ValueError("Use an HTTPS backend, or explicitly disable verify_tls for an isolated evaluation LAN")
-        if not agent_secret:
-            raise ValueError("agent_secret is required when evaluation_mode is disabled")
+    parsed = urlparse(backend_url)
+    if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+        raise ValueError("backend_url must be a valid HTTP(S) URL")
+    if parsed.scheme != "https" and verify_tls:
+        raise ValueError("Use an HTTPS backend, or explicitly disable verify_tls for an isolated evaluation LAN")
 
     supervisor_token = environ.get("SUPERVISOR_TOKEN")
     if not supervisor_token:
         raise RuntimeError("SUPERVISOR_TOKEN was not provided; homeassistant_api must be enabled")
 
     return {
-        "AGENT_MODE": "evaluation" if evaluation_mode else "connected",
         "BACKEND_URL": backend_url,
         "SITE_CODE": required(options, "site_code"),
         "DEVICE_UID": required(options, "device_uid"),
@@ -51,9 +44,19 @@ def build_environment(options: dict, environ: dict[str, str]) -> dict[str, str]:
     }
 
 
-def main() -> None:
-    options = json.loads(Path("/data/options.json").read_text(encoding="utf-8"))
-    os.environ.update(build_environment(options, os.environ))
+def main(options_path: Path = Path("/data/options.json")) -> None:
+    options = json.loads(options_path.read_text(encoding="utf-8"))
+    try:
+        environment = build_environment(options, os.environ)
+    except (ValueError, RuntimeError) as exc:
+        print("HA Fleet Agent cannot start: configuration is incomplete or invalid.", flush=True)
+        print(f"Reason: {exc}", flush=True)
+        print(
+            "Open Settings > Apps > HA Fleet Agent > Configuration, set backend_url and agent_secret, save, then start the app again.",
+            flush=True,
+        )
+        raise SystemExit(78) from None
+    os.environ.update(environment)
     os.execv(sys.executable, [sys.executable, "-m", "app.main"])
 
 
