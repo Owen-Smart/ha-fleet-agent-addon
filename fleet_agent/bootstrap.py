@@ -41,6 +41,11 @@ def build_environment(options: dict, environ: dict[str, str]) -> dict[str, str]:
         "TUNNEL_STATUS": "not_configured",
         "ZIGBEE2MQTT_URL": str(options.get("zigbee2mqtt_url", "")),
         "ESPHOME_URL": str(options.get("esphome_url", "")),
+        "TUNNEL_URL": str(options.get("tunnel_url", "")).rstrip("/"),
+        "TUNNEL_CONTROL_KEY_ID": str(options.get("tunnel_control_key_id", "")).strip(),
+        "TUNNEL_CONTROL_SECRET": str(options.get("tunnel_control_secret", "")).strip(),
+        "MAINTENANCE_TTL_SECONDS": str(options.get("maintenance_ttl_seconds", 3600)),
+        "MAINTENANCE_LEASE_PATH": "/data/maintenance_lease.json",
     }
 
 
