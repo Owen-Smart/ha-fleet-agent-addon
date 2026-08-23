@@ -21,7 +21,7 @@ https://github.com/Owen-Smart/ha-fleet-agent-addon
 ## 注意
 
 - Repository 不包含任何實際密碼、Token 或站點憑證。
-- 尚未部署中央平台時保留 `evaluation_mode: true`；Agent 會持續驗證本機 HA 健康狀態，但不會向外傳送資料。
-- 要啟用中央回報時，先配置獨立的 `agent_secret` 與 `backend_url`，再將 `evaluation_mode` 改為 `false`。
+- `agent_secret` 必須在安裝後，於 Home Assistant 的 App 設定頁個別輸入；空白時 Agent 會拒絕啟動並在日誌提示設定方式。
+- 預設採手動啟動；完成後端與站點憑證設定、確認成功註冊後，再開啟「開機時啟動」，避免未設定完成時反覆重啟。
 - HTTP 僅適合隔離的測試 LAN；正式環境必須使用 HTTPS。
 - 完整的 Headscale 自動註冊與正式憑證輪替仍屬後續商業化工作。
