@@ -1,6 +1,6 @@
 name: "HA Fleet Tunnel"
 description: "Private on-demand Tailscale Serve tunnel for HA Fleet"
-version: "0.1.0"
+version: "0.1.1"
 slug: "ha_fleet_tunnel"
 init: false
 startup: application
@@ -20,4 +20,3 @@ schema:
   control_key_id: str
   control_secret: password
   serve_port: "int(443,443)"
-
