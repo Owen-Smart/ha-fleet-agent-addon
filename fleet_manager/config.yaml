@@ -1,6 +1,6 @@
 name: "HA Fleet Manager"
 description: "Lightweight remote access and maintenance console for Home Assistant sites"
-version: "0.1.0"
+version: "0.1.1"
 slug: "ha_fleet_manager"
 init: false
 startup: application
@@ -33,5 +33,4 @@ schema:
       agent_key_id: str
       agent_secret: password
       remote_url: "str?"
-
 
