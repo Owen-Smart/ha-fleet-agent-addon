@@ -1,6 +1,6 @@
 name: "HA Fleet Agent"
 description: "Outbound-only fleet telemetry agent for the HA Fleet commercial PoC"
-version: "0.1.4"
+version: "0.1.5"
 slug: "ha_fleet_agent"
 init: false
 startup: application
@@ -37,4 +37,3 @@ schema:
   tunnel_control_key_id: str
   tunnel_control_secret: password
   maintenance_ttl_seconds: "int(300,86400)"
-
