@@ -1,6 +1,6 @@
 name: "HA Fleet Agent"
 description: "Outbound-only fleet telemetry agent for the HA Fleet commercial PoC"
-version: "0.1.3"
+version: "0.1.4"
 slug: "ha_fleet_agent"
 init: false
 startup: application
@@ -29,3 +29,4 @@ schema:
   verify_tls: bool
   zigbee2mqtt_url: "str?"
   esphome_url: "str?"
+
