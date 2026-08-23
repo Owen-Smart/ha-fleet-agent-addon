@@ -7,7 +7,7 @@ HA Fleet Manager 是第一版的輕量遠端使用與維修入口，安裝於 Ow
 - 接收已授權 Fleet Agent 的即時狀態。
 - 在 Home Assistant 側邊欄顯示 SITE 是否在線。
 - 顯示目前 HA／Agent 版本與資源使用狀況。
-- 在設定 Tunnel URL 後開啟遠端 Home Assistant。
+- 透過 Agent 主動取回的命令，動態開啟或關閉 SITE 的 Tailscale Serve。
 - 不保存歷史狀態，不使用 PostgreSQL 或 SQLite。
 
 ## 安全限制
@@ -28,5 +28,5 @@ HA Fleet Manager 是第一版的輕量遠端使用與維修入口，安裝於 Ow
 - `agent_key_id`
 - `agent_secret`
 
-`remote_url` 可以先留空；完成 Tunnel Client 後再填入該 SITE 的私人 HTTPS URL。
+`remote_url` 可以先留空；Agent 會從 Fleet Tunnel 的 `status --json` 取得私人 HTTPS URL 並回報 Manager。
 
